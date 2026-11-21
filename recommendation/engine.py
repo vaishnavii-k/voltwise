@@ -156,7 +156,7 @@ def recommend(request: dict[str, Any], stations: list[dict[str, Any]],
             if power <= 0:
                 continue
             duration = estimate_charge_minutes(battery_kwh, arrival_soc, target_soc, power, efficiency)
-            first = ceil_to_slot(max(preferred, arrival))
+            first = ceil_to_slot(max(now if priority == 'critical' else preferred, arrival))
             grid_energy = battery_kwh * (target_soc - arrival_soc) / 100 / efficiency
             t = first
             while t + timedelta(minutes=duration) <= search_end:
@@ -166,7 +166,7 @@ def recommend(request: dict[str, Any], stations: list[dict[str, Any]],
                     diagnostics['conflicting_or_overloaded_slots'] += 1
                     t += timedelta(minutes=SLOT_MINUTES)
                     continue
-                delay = max(0, (t - preferred).total_seconds() / 60)
+                delay = max(0, (t - (now if priority == 'critical' else preferred)).total_seconds() / 60)
                 estimated_cost = grid_energy * float(station['tariff_per_kwh'])
                 candidates.append({
                     'station_id': station['id'], 'station_name': station['name'],
