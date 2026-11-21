@@ -1,0 +1,50 @@
+table_name,column_name,data_type,is_nullable
+charging_sessions,id,bigint,NO
+charging_sessions,reservation_id,bigint,YES
+charging_sessions,start_time,timestamp with time zone,YES
+charging_sessions,end_time,timestamp with time zone,YES
+charging_sessions,energy_consumed_kwh,numeric,YES
+charging_sessions,status,character varying,YES
+connectors,id,bigint,NO
+connectors,station_id,bigint,NO
+connectors,connector_type,character varying,NO
+connectors,max_power_kw,numeric,NO
+connectors,status,character varying,YES
+connectors,created_at,timestamp with time zone,YES
+energy_readings,id,bigint,NO
+energy_readings,session_id,bigint,NO
+energy_readings,recorded_at,timestamp with time zone,YES
+energy_readings,energy_kwh,numeric,NO
+energy_readings,power_kw,numeric,YES
+payments,id,bigint,NO
+payments,session_id,bigint,NO
+payments,amount,numeric,NO
+payments,payment_status,character varying,YES
+payments,payment_method,character varying,YES
+payments,created_at,timestamp with time zone,YES
+reservations,id,bigint,NO
+reservations,user_id,uuid,NO
+reservations,connector_id,bigint,NO
+reservations,start_time,timestamp with time zone,NO
+reservations,end_time,timestamp with time zone,NO
+reservations,status,character varying,YES
+reservations,created_at,timestamp with time zone,YES
+stations,id,bigint,NO
+stations,station_name,character varying,NO
+stations,location,text,NO
+stations,latitude,numeric,YES
+stations,longitude,numeric,YES
+stations,max_capacity_kw,numeric,NO
+stations,is_active,boolean,YES
+stations,created_at,timestamp with time zone,YES
+tariffs,id,bigint,NO
+tariffs,station_id,bigint,YES
+tariffs,price_per_kwh,numeric,NO
+tariffs,valid_from,timestamp with time zone,YES
+tariffs,valid_until,timestamp with time zone,YES
+users,id,uuid,NO
+users,full_name,character varying,NO
+users,email,character varying,NO
+users,phone,character varying,YES
+users,role,character varying,YES
+users,created_at,timestamp with time zone,YES
