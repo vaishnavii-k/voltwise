@@ -180,19 +180,90 @@ def recommend(request: dict[str, Any], stations: list[dict[str, Any]],
                 })
                 t += timedelta(minutes=SLOT_MINUTES)
 
-    # Safety/feasibility are hard filters. Priority changes sorting of viable options.
+    # Feasibility is mandatory; scores only compare feasible reservations.
+    # Fixed reference scales make scores reproducible for backend/API clients.
+    # A score of 0 is best. Values can exceed 1 for large delay/cost.
+    weights = {
+        'critical': (1.00, 0.00),
+        'high': (0.80, 0.20),
+        'normal': (0.50, 0.50),
+        'flexible': (0.20, 0.80),
+    }
+    wait_weight, cost_weight = weights[priority]
+    for candidate in candidates:
+        wait_component = candidate['waiting_minutes'] / 60.0
+        cost_component = candidate['estimated_cost_inr'] / 500.0
+        candidate['score'] = round(wait_weight * wait_component + cost_weight * cost_component, 4)
+        candidate['score_factors'] = {
+            'waiting_minutes': candidate['waiting_minutes'],
+            'estimated_cost_inr': candidate['estimated_cost_inr'],
+            'waiting_weight': wait_weight,
+            'cost_weight': cost_weight,
+            'waiting_reference_minutes': 60,
+            'cost_reference_inr': 500,
+        }
+        if priority == 'critical':
+            explanation = (
+                'Critical battery: earliest feasible charging start is prioritized '
+                'after checking estimated reachability, connector availability '
+                'and station power capacity.'
+            )
+        elif priority == 'high':
+            explanation = 'High priority: waiting time matters more than charging cost.'
+        elif priority == 'normal':
+            explanation = 'Normal priority: waiting time and charging cost receive equal weight.'
+        else:
+            explanation = 'Flexible priority: charging cost matters more than waiting time.'
+        candidate['reason'] = (
+            f"{explanation} {candidate['station_name']} begins in "
+            f"{candidate['waiting_minutes']:g} min relative to the scheduling reference "
+            f"and costs approximately INR {candidate['estimated_cost_inr']:.2f}."
+        )
+
+    # Critical priority is ordered by achievable start, not just a numeric score;
+    # the tie-breakers favor shorter travel then lower cost.
     if priority == 'critical':
-        key = lambda c: (c['waiting_minutes'], c['travel_minutes'], c['estimated_cost_inr'])
-    elif priority == 'high':
-        key = lambda c: (0.8 * c['waiting_minutes']/60 + 0.2 * c['estimated_cost_inr']/500,
-                         c['waiting_minutes'])
-    elif priority == 'normal':
-        key = lambda c: (0.5 * c['waiting_minutes']/60 + 0.5 * c['estimated_cost_inr']/500,
-                         c['waiting_minutes'])
+        candidates.sort(key=lambda c: (c['waiting_minutes'], c['travel_minutes'],
+                                       c['estimated_cost_inr'], c['station_id'], c['connector_id']))
     else:
-        key = lambda c: (0.2 * c['waiting_minutes']/60 + 0.8 * c['estimated_cost_inr']/500,
-                         c['waiting_minutes'])
-    candidates.sort(key=key)
-    return {'priority': priority, 'recommendations': candidates[:top_n],
+        candidates.sort(key=lambda c: (c['score'], c['waiting_minutes'],
+                                       c['station_id'], c['connector_id']))
+
+    # Diversify the displayed suggestions without changing feasibility or the
+    # top-ranked best option. First choose distinct stations, then connectors,
+    # then remaining time slots if fewer than top_n have been selected.
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[tuple[str, str, str]] = set()
+    chosen_stations: set[str] = set()
+    chosen_connectors: set[str] = set()
+
+    def choose(item: dict[str, Any]) -> None:
+        selected.append(item)
+        selected_keys.add((item['station_id'], item['connector_id'], item['start_time']))
+        chosen_stations.add(item['station_id'])
+        chosen_connectors.add(item['connector_id'])
+
+    for candidate in candidates:
+        if len(selected) >= top_n:
+            break
+        if candidate['station_id'] not in chosen_stations:
+            choose(candidate)
+    for candidate in candidates:
+        if len(selected) >= top_n:
+            break
+        if candidate['connector_id'] not in chosen_connectors and (
+            candidate['station_id'], candidate['connector_id'], candidate['start_time']
+        ) not in selected_keys:
+            choose(candidate)
+    for candidate in candidates:
+        if len(selected) >= top_n:
+            break
+        if (candidate['station_id'], candidate['connector_id'], candidate['start_time']) not in selected_keys:
+            choose(candidate)
+
+    for index, candidate in enumerate(selected, 1):
+        candidate['rank'] = index
+    return {'priority': priority, 'recommendations': selected,
             'considered_feasible_slots': len(candidates), 'diagnostics': diagnostics,
+            'ranking_method': 'constraint_filter_then_weighted_score_with_station_diversity',
             'notice': 'Planning only: FastAPI must revalidate and book atomically in Supabase PostgreSQL.'}
